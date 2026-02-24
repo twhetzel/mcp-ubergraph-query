@@ -30,17 +30,21 @@ cd mcp-ubergraph-query
 uv sync --all-extras
 ```
 
-### Run the server
+### Run the server locally
+
+The server uses **stdio** (stdin/stdout) for MCP transport. Start it with:
 
 ```bash
 uv run mcp-ubergraph-query
 ```
 
-Or directly:
+Or:
 
 ```bash
 uv run python -m ubergraph_query.server
 ```
+
+Leave this process running; MCP clients (e.g. Claude Desktop, Cursor) connect by spawning this command and talking over stdin/stdout.
 
 ### Configure Claude Desktop
 
@@ -264,18 +268,30 @@ SELECT ?phenotype ?label WHERE {
 LIMIT 20
 ```
 
+## Testing locally
+
+The project is not on PyPI yet. Install and test from the repo:
+
+```bash
+# Install with dev dependencies (includes pytest)
+uv sync --all-extras
+
+# Run unit tests (no network)
+uv run python -m pytest tests/ -v
+
+# Test the MCP server: spawns server, lists tools, calls get_term_info, search_terms, get_hierarchy
+uv run python examples/test_mcp_server.py
+
+# Run direct SPARQL/query examples (hits Ubergraph)
+uv run python examples/example_usage.py
+```
+
+**Manual testing with MCP Inspector:**  
+Run the server with `uv run mcp-ubergraph-query`, then use [MCP Inspector](https://github.com/modelcontextprotocol/inspector) and add a stdio server with command `uv`, args `--directory`, `<path-to-this-repo>`, `run`, `mcp-ubergraph-query`.
+
 ## Development
 
 ```bash
-# Install with dev dependencies
-uv sync --all-extras
-
-# Run tests
-uv run pytest
-
-# Run example queries (requires network access to Ubergraph)
-uv run python examples/example_usage.py
-
 # Lint
 uv run ruff check src/ tests/
 ```
