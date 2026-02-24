@@ -13,7 +13,6 @@ from ubergraph_query.query_builder import (
     build_term_info_query,
     build_search_query,
     build_parents_query,
-    HEALTH_CHECK_QUERY,
 )
 from ubergraph_query.validators import validate_sparql_query
 

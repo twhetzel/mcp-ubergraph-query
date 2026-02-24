@@ -155,6 +155,14 @@ class TestQueryBuilder:
         assert "rdfs:subClassOf" in q
         assert "MONDO_0005015" in q
 
+    def test_parents_query_returns_distance(self):
+        q1 = build_parents_query("MONDO:0005015", depth=1)
+        assert "?distance" in q1
+        assert "1 AS ?distance" in q1
+        q2 = build_parents_query("MONDO:0005015", depth=2)
+        assert "MIN(?d) AS ?distance" in q2
+        assert "GROUP BY ?parent" in q2
+
     def test_children_query(self):
         q = build_children_query("MONDO:0005015", depth=1)
         assert "rdfs:subClassOf" in q
@@ -164,9 +172,20 @@ class TestQueryBuilder:
         # Should have a property path
         assert "rdfs:subClassOf" in q
 
+    def test_ancestors_returns_actual_distance(self):
+        q = build_ancestors_query("MONDO:0005015", depth=3)
+        assert "?distance" in q
+        assert "MIN(?d) AS ?distance" in q
+        assert "GROUP BY ?ancestor" in q
+
     def test_descendants_query(self):
         q = build_descendants_query("HP:0001945", depth=2)
         assert "HP_0001945" in q
+
+    def test_descendants_returns_actual_distance(self):
+        q = build_descendants_query("HP:0001945", depth=2)
+        assert "MIN(?d) AS ?distance" in q
+        assert "GROUP BY ?descendant" in q
 
 
 # ---------------------------------------------------------------------------

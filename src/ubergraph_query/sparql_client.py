@@ -10,12 +10,13 @@ import httpx
 from tenacity import (
     RetryError,
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
 
 from . import config
+from .query_builder import HEALTH_CHECK_QUERY
 
 logger = logging.getLogger(__name__)
 
@@ -110,7 +111,7 @@ class SPARQLClient:
         self, query: str, accept: str, timeout_s: int
     ) -> str:
         @retry(
-            retry=retry_if_exception_type(tuple(_RETRYABLE) + (httpx.HTTPStatusError,)),
+            retry=retry_if_exception(_is_retryable),
             stop=stop_after_attempt(config.HTTP_MAX_RETRIES),
             wait=wait_exponential(
                 min=config.HTTP_RETRY_WAIT_MIN, max=config.HTTP_RETRY_WAIT_MAX
@@ -179,8 +180,6 @@ class SPARQLClient:
 
     async def health_check(self) -> dict[str, Any]:
         """Ping the endpoint and return status info."""
-        from .query_builder import HEALTH_CHECK_QUERY
-
         t0 = time.monotonic()
         try:
             result = await self.execute(HEALTH_CHECK_QUERY, timeout=10)

@@ -25,7 +25,7 @@ GO, CL, and more. This server exposes four tools that let AI assistants query it
 ### Install
 
 ```bash
-git clone https://github.com/your-org/mcp-ubergraph-query
+git clone https://github.com/twhetzel/mcp-ubergraph-query
 cd mcp-ubergraph-query
 uv sync --all-extras
 ```

@@ -124,8 +124,43 @@ LIMIT {limit}
 
 
 # ---------------------------------------------------------------------------
-# get_hierarchy
+# get_hierarchy — path patterns that compute actual distance per term
 # ---------------------------------------------------------------------------
+
+
+def _path_patterns_forward(obo_iri: str, target_var: str, depth: int) -> str:
+    """UNION of path patterns: start -[subClassOf]-> ... -> target, with BIND(1..depth AS ?d)."""
+    parts = []
+    for d in range(1, depth + 1):
+        if d == 1:
+            triples = f"{obo_iri} rdfs:subClassOf ?{target_var} ."
+        elif d == 2:
+            triples = f"{obo_iri} rdfs:subClassOf ?a1 . ?a1 rdfs:subClassOf ?{target_var} ."
+        else:
+            mid = " . ".join(
+                f"?a{i} rdfs:subClassOf ?a{i - 1}" for i in range(d - 1, 1, -1)
+            )
+            triples = f"{obo_iri} rdfs:subClassOf ?a{d - 1} . {mid} . ?a1 rdfs:subClassOf ?{target_var} ."
+        parts.append(f"  {{ {triples} BIND({d} AS ?d) }}")
+    return "\n  UNION\n".join(parts)
+
+
+def _path_patterns_backward(obo_iri: str, target_var: str, depth: int) -> str:
+    """UNION of path patterns: target -[subClassOf]-> ... -> start, with BIND(1..depth AS ?d)."""
+    parts = []
+    for d in range(1, depth + 1):
+        if d == 1:
+            triples = f"?{target_var} rdfs:subClassOf {obo_iri} ."
+        elif d == 2:
+            triples = f"?{target_var} rdfs:subClassOf ?a1 . ?a1 rdfs:subClassOf {obo_iri} ."
+        else:
+            mid = " . ".join(
+                f"?a{i} rdfs:subClassOf ?a{i + 1}" for i in range(1, d - 1)
+            )
+            triples = f"?{target_var} rdfs:subClassOf ?a1 . {mid} . ?a{d - 1} rdfs:subClassOf {obo_iri} ."
+        parts.append(f"  {{ {triples} BIND({d} AS ?d) }}")
+    return "\n  UNION\n".join(parts)
+
 
 def build_parents_query(curie: str, depth: int = 1) -> str:
     depth = validate_depth(depth)
@@ -135,22 +170,23 @@ def build_parents_query(curie: str, depth: int = 1) -> str:
     if depth == 1:
         return f"""\
 {PREFIXES}
-SELECT DISTINCT ?parent ?label WHERE {{
+SELECT DISTINCT ?parent ?label (1 AS ?distance) WHERE {{
   {obo_iri} rdfs:subClassOf ?parent .
   FILTER(!isBlank(?parent))
   OPTIONAL {{ ?parent rdfs:label ?label }}
 }}
 LIMIT 200
 """
-    # Use property path for depth > 1 (up to depth hops)
-    path = "/".join(["rdfs:subClassOf"] * depth)
+    patterns = _path_patterns_forward(obo_iri, "parent", depth)
     return f"""\
 {PREFIXES}
-SELECT DISTINCT ?parent ?label WHERE {{
-  {obo_iri} {path} ?parent .
+SELECT ?parent (SAMPLE(?label) AS ?label) (MIN(?d) AS ?distance) WHERE {{
+  {{
+{patterns}
+  }}
   FILTER(!isBlank(?parent))
   OPTIONAL {{ ?parent rdfs:label ?label }}
-}}
+}} GROUP BY ?parent
 LIMIT 200
 """
 
@@ -163,57 +199,83 @@ def build_children_query(curie: str, depth: int = 1) -> str:
     if depth == 1:
         return f"""\
 {PREFIXES}
-SELECT DISTINCT ?child ?label WHERE {{
+SELECT DISTINCT ?child ?label (1 AS ?distance) WHERE {{
   ?child rdfs:subClassOf {obo_iri} .
   FILTER(!isBlank(?child))
   OPTIONAL {{ ?child rdfs:label ?label }}
 }}
 LIMIT 200
 """
-    path = "/".join(["rdfs:subClassOf"] * depth)
+    patterns = _path_patterns_backward(obo_iri, "child", depth)
     return f"""\
 {PREFIXES}
-SELECT DISTINCT ?child ?label WHERE {{
-  ?child {path} {obo_iri} .
+SELECT ?child (SAMPLE(?label) AS ?label) (MIN(?d) AS ?distance) WHERE {{
+  {{
+{patterns}
+  }}
   FILTER(!isBlank(?child))
   OPTIONAL {{ ?child rdfs:label ?label }}
-}}
+}} GROUP BY ?child
 LIMIT 200
 """
 
 
 def build_ancestors_query(curie: str, depth: int = 5) -> str:
-    """Transitive ancestors using rdfs:subClassOf+ (up to depth)."""
+    """Transitive ancestors using rdfs:subClassOf (up to depth). Returns actual distance per term."""
     depth = validate_depth(depth)
     iri = curie_to_iri(curie)
     obo_iri = f"<{iri}>"
-    _steps = "/".join(["rdfs:subClassOf"] * (depth - 1))
-    path = "rdfs:subClassOf+" if depth >= 5 else f"rdfs:subClassOf/{_steps}"
-    return f"""\
+
+    if depth == 1:
+        return f"""\
 {PREFIXES}
-SELECT DISTINCT ?ancestor ?label WHERE {{
-  {obo_iri} {path} ?ancestor .
+SELECT DISTINCT ?ancestor ?label (1 AS ?distance) WHERE {{
+  {obo_iri} rdfs:subClassOf ?ancestor .
   FILTER(!isBlank(?ancestor))
   OPTIONAL {{ ?ancestor rdfs:label ?label }}
 }}
 LIMIT 500
 """
+    patterns = _path_patterns_forward(obo_iri, "ancestor", depth)
+    return f"""\
+{PREFIXES}
+SELECT ?ancestor (SAMPLE(?label) AS ?label) (MIN(?d) AS ?distance) WHERE {{
+  {{
+{patterns}
+  }}
+  FILTER(!isBlank(?ancestor))
+  OPTIONAL {{ ?ancestor rdfs:label ?label }}
+}} GROUP BY ?ancestor
+LIMIT 500
+"""
 
 
 def build_descendants_query(curie: str, depth: int = 5) -> str:
-    """Transitive descendants using rdfs:subClassOf+ (up to depth)."""
+    """Transitive descendants using rdfs:subClassOf (up to depth). Returns actual distance per term."""
     depth = validate_depth(depth)
     iri = curie_to_iri(curie)
     obo_iri = f"<{iri}>"
-    _steps = "/".join(["rdfs:subClassOf"] * (depth - 1))
-    path = "rdfs:subClassOf+" if depth >= 5 else f"rdfs:subClassOf/{_steps}"
-    return f"""\
+
+    if depth == 1:
+        return f"""\
 {PREFIXES}
-SELECT DISTINCT ?descendant ?label WHERE {{
-  ?descendant {path} {obo_iri} .
+SELECT DISTINCT ?descendant ?label (1 AS ?distance) WHERE {{
+  ?descendant rdfs:subClassOf {obo_iri} .
   FILTER(!isBlank(?descendant))
   OPTIONAL {{ ?descendant rdfs:label ?label }}
 }}
+LIMIT 500
+"""
+    patterns = _path_patterns_backward(obo_iri, "descendant", depth)
+    return f"""\
+{PREFIXES}
+SELECT ?descendant (SAMPLE(?label) AS ?label) (MIN(?d) AS ?distance) WHERE {{
+  {{
+{patterns}
+  }}
+  FILTER(!isBlank(?descendant))
+  OPTIONAL {{ ?descendant rdfs:label ?label }}
+}} GROUP BY ?descendant
 LIMIT 500
 """
 

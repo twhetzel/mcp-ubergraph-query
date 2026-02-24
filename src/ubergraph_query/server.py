@@ -1,5 +1,6 @@
 """MCP server exposing Ubergraph SPARQL tools."""
 
+import json
 import logging
 import re
 from typing import Any
@@ -46,7 +47,10 @@ logger = logging.getLogger(__name__)
 # IRI → CURIE helper
 # ---------------------------------------------------------------------------
 
-_OBO_IRI_RE = re.compile(r"http://purl\.obolibrary\.org/obo/([A-Za-z]+)_(\w+)")
+# Align with validators._CURIE_RE: prefix [A-Za-z][A-Za-z0-9_]*, local [\w\-\.]+
+_OBO_IRI_RE = re.compile(
+    r"http://purl\.obolibrary\.org/obo/([A-Za-z][A-Za-z0-9_]*)_([\w\-\.]+)"
+)
 
 
 def _iri_to_curie(iri: str) -> str | None:
@@ -213,7 +217,6 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         logger.exception("Unexpected error in tool %s", name)
         result = {"error": f"Internal error: {exc}"}
 
-    import json
     return [TextContent(type="text", text=json.dumps(result, indent=2, default=str))]
 
 
@@ -427,7 +430,10 @@ async def _tool_get_hierarchy(args: dict[str, Any]) -> dict[str, Any]:
         iri = row.get(term_var, "")
         child_curie = _iri_to_curie(iri) or iri
         label = row.get("label") or ""
-        terms.append({"curie": child_curie, "label": label, "distance": depth})
+        # Use actual distance from query when present (SPARQL returns it as string)
+        raw_dist = row.get("distance", depth)
+        dist = int(raw_dist) if raw_dist is not None else depth
+        terms.append({"curie": child_curie, "label": label, "distance": dist})
 
     result: dict[str, Any] = {
         "curie": curie,
